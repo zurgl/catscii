@@ -14,6 +14,15 @@ use tracing_subscriber::{filter::Targets, layer::SubscriberExt, util::Subscriber
 
 #[tokio::main]
 async fn main() {
+    // at the top of main
+    let _guard = sentry::init((
+        std::env::var("SENTRY_DSN").expect("$SENTRY_DSN must be set"),
+        sentry::ClientOptions {
+            release: sentry::release_name!(),
+            ..Default::default()
+        },
+    ));
+
     let filter = Targets::from_str(std::env::var("RUST_LOG").as_deref().unwrap_or("info"))
         .expect("RUST_LOG should be a valid tracing filter");
     tracing_subscriber::fmt()
