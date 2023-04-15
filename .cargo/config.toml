@@ -1,0 +1,8 @@
+[unstable]
+registry-auth = true
+
+[registries.ai-generated]
+index = "ssh://git@ssh.shipyard.rs/ai-generated/crate-index.git"
+
+[net]
+git-fetch-with-cli = true
