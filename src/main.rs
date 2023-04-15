@@ -1,4 +1,3 @@
-#![allow(unused_imports)]
 use std::{net::IpAddr, str::FromStr};
 
 use opentelemetry::{
@@ -15,21 +14,20 @@ use axum::{
     routing::get,
     Router,
 };
-//use locat::Locat;
+use locat::Locat;
 use reqwest::StatusCode;
-//use std::sync::Arc;
+use std::sync::Arc;
 use tracing::{info, warn, Level};
 use tracing_subscriber::{filter::Targets, layer::SubscriberExt, util::SubscriberInitExt};
 
 #[derive(Clone)]
 struct ServerState {
     client: reqwest::Client,
-    //  locat: Arc<Locat>,
+    locat: Arc<Locat>,
 }
 
 #[tokio::main]
 async fn main() {
-    // at the top of main
     let (_honeyguard, _tracer) = opentelemetry_honeycomb::new_pipeline(
         std::env::var("HONEYCOMB_API_KEY").expect("$HONEYCOMB_API_KEY should be set"),
         "catscii".into(),
@@ -46,13 +44,24 @@ async fn main() {
         .with(filter)
         .init();
 
+    let country_db_env_var = "GEOLITE2_COUNTRY_DB";
+    let country_db_path = std::env::var(country_db_env_var)
+        .unwrap_or_else(|_| panic!("${country_db_env_var} must be set"));
+    println!("{country_db_path}");
+
+    let analytics_db_env_var = "ANALYTICS_DB";
+    let analytics_db_path = std::env::var(analytics_db_env_var)
+        .unwrap_or_else(|_| panic!("${analytics_db_env_var} must be set"));
+    println!("{analytics_db_path}");
+
     let state = ServerState {
         client: Default::default(),
-        //  locat: Arc::new(Locat::new("todo_geoip_path.mmdb", "todo_analytics.db")),
+        locat: Arc::new(Locat::new(&country_db_path, &analytics_db_path).unwrap()),
     };
 
     let app = Router::new()
         .route("/", get(root_get))
+        .route("/analytics", get(analytics_get))
         .route("/panic", get(|| async { panic!("This is a test panic") }))
         .with_state(state);
 
@@ -70,12 +79,22 @@ async fn main() {
         .unwrap();
 }
 
-// fn get_client_addr(headers: &HeaderMap) -> Option<IpAddr> {
-//     let header = headers.get("fly-client-ip")?;
-//     let header = header.to_str().ok()?;
-//     let addr = header.parse::<IpAddr>().ok()?;
-//     Some(addr)
-// }
+async fn analytics_get(State(state): State<ServerState>) -> Response<BoxBody> {
+    let analytics = state.locat.get_analytics().await.unwrap();
+    let mut response = String::new();
+    use std::fmt::Write;
+    for (country, count) in analytics {
+        _ = writeln!(&mut response, "{country}: {count}");
+    }
+    response.into_response()
+}
+
+fn get_client_addr(headers: &HeaderMap) -> Option<IpAddr> {
+    let header = headers.get("fly-client-ip")?;
+    let header = header.to_str().ok()?;
+    let addr = header.parse::<IpAddr>().ok()?;
+    Some(addr)
+}
 
 async fn root_get(headers: HeaderMap, State(state): State<ServerState>) -> Response<BoxBody> {
     let tracer = global::tracer("");
@@ -88,15 +107,15 @@ async fn root_get(headers: HeaderMap, State(state): State<ServerState>) -> Respo
             .unwrap_or_default(),
     ));
 
-    // if let Some(addr) = get_client_addr(&headers) {
-    //     match state.locat.ip_to_iso_code(addr) {
-    //         Some(country) => {
-    //             info!("Got request from {country}");
-    //             span.set_attribute(KeyValue::new("country", country.to_string()));
-    //         }
-    //         None => warn!("Could not determine country for IP address"),
-    //     }
-    // }
+    if let Some(addr) = get_client_addr(&headers) {
+        match state.locat.ip_to_iso_code(addr).await {
+            Some(country) => {
+                info!("Got request from {country}");
+                span.set_attribute(KeyValue::new("country", country.to_string()));
+            }
+            None => warn!("Could not determine country for IP address"),
+        }
+    }
 
     root_get_inner(state)
         .with_context(Context::current_with_span(span))
@@ -195,4 +214,24 @@ async fn download_file(client: &reqwest::Client, url: &str) -> color_eyre::Resul
         .bytes()
         .await?;
     Ok(bytes.to_vec())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_db() {
+        let country_db_env_var = "GEOLITE2_COUNTRY_DB";
+        let country_db_path = std::env::var(country_db_env_var)
+            .unwrap_or_else(|_| panic!("${country_db_env_var} must be set"));
+
+        let analytics_db_env_var = "ANALYTICS_DB";
+        let analytics_db_path = std::env::var(analytics_db_env_var)
+            .unwrap_or_else(|_| panic!("${analytics_db_env_var} must be set"));
+        let _locat = Locat::new(&country_db_path, &analytics_db_path).unwrap();
+
+        println!("{country_db_path:?}");
+        println!("{analytics_db_path:?}");
+    }
 }

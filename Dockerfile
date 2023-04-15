@@ -13,7 +13,7 @@ ARG ssh_pub_key
 RUN set -eux; \
 		apt update; \
 		apt install -y --no-install-recommends \
-			openssh-client git-core curl ca-certificates gcc libc6-dev pkg-config libssl-dev \
+		libsqlite3-dev openssh-client git-core curl ca-certificates gcc libc6-dev pkg-config libssl-dev \
 			;
 
 # Install rustup
@@ -41,11 +41,14 @@ RUN echo "$ssh_prv_key" > /root/.ssh/id_rsa && \
     chmod 600 /root/.ssh/id_rsa && \
     chmod 600 /root/.ssh/id_rsa.pub
 
+
+
 # Copy sources and build them
 WORKDIR /app
 COPY src src
 COPY .cargo .cargo
 COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
+COPY db db
 RUN --mount=type=cache,target=/root/.rustup \
     --mount=type=cache,target=/root/.cargo/registry \
     --mount=type=cache,target=/root/.cargo/git \
@@ -71,7 +74,7 @@ SHELL ["/bin/bash", "-c"]
 RUN set -eux; \
 		apt update; \
 		apt install -y --no-install-recommends \
-			ca-certificates \
+			ca-certificates libsqlite3-0 \
 			; \
 		apt clean autoclean; \
 		apt autoremove --yes; \
